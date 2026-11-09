@@ -1,0 +1,8 @@
+# Blank template by default.
+#
+# This is the copy PACKAGED INSIDE THE JAR. It deliberately lists no tenant, so a container started without an external
+# file runs in idle mode. The real tenant list lives OUTSIDE the image, in /config/fluxnova-engine.yml (a mounted
+# volume, read at start-up and watched: a change restarts the application); when that file exists, its values replace the
+# ones below. See README.md.
+fluxnova-workers:
+  tenants: []

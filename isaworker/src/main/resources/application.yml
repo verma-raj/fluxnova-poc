@@ -1,0 +1,95 @@
+spring:
+  application:
+    name: isaworker
+  config:
+    # The blank template packaged in the jar (fluxnova-workers.tenants: []) is the baseline: no tenant. The EXTERNAL
+    # fluxnova-engine.yml is NOT imported here: EngineConfigReader reads it at start-up, so that a missing, empty or
+    # invalid file starts the application idle (and says why) instead of stopping it, and EngineConfigWatcher restarts the
+    # application when the file changes (see fluxnova-workers.config below).
+    import: "classpath:fluxnova-engine.yml"
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      # Tenant ids and engine URLs only, never credentials. The port is not published by default.
+      show-details: always
+
+# The dialogs of the three interactive workers (enter-name-topic, enter-address-topic, show-details-topic).
+# BPMN models are NOT deployed by isaworker: they are deployed manually (deploy-bpmn.ps1), from the folder bpmn/.
+isaworker:
+  workers:
+    # false (default): the answers are BUSINESS data and stay in workerdb. A process variable would be stored in the Fluxnova
+    # engine's own database, which is for Fluxnova's use only. true: the workers also set the process variables `name` and
+    # `address` (needed only if the process itself, a gateway or an expression, must read them).
+    set-process-variables: ${ISAWORKER_SET_PROCESS_VARIABLES:false}
+  gui:
+    # remote   : the dialogs open on the DESKTOP of the machine that runs the Docker container, not inside the container.
+    #            The worker queues each dialog; the dialog agent (run-dialog-agent.ps1) on that desktop fetches it over
+    #            HTTP, shows a real Swing window and sends the answer back. This is the mode of isaworkercontainer.
+    # auto     : Swing windows in THIS JVM when it has a desktop (isaworker started on the desktop), otherwise "headless".
+    # swing    : always Swing in this JVM; without a desktop every interactive task fails with a clear message.
+    # headless : no windows. The answers come from process variables `name` / `address` supplied when the process is
+    #            started, and "show details" is written to the log.
+    mode: ${ISAWORKER_GUI_MODE:auto}
+    # How long a fetched interactive task stays locked to this worker. A person typing takes longer than the 30 s default;
+    # if the lock ran out the engine could hand the task to another worker and a second dialog would open.
+    lock-duration: PT15M
+    # After a cancelled dialog the engine offers the task again after this pause (and up to 3 times, then raises an incident).
+    retry-timeout: PT30S
+    remote:
+      # Shared secret of the worker and the dialog agent. REQUIRED in remote mode (the worker does not start without it).
+      token: ${ISAWORKER_DIALOG_TOKEN:}
+      # How long a worker waits for the person to answer. Below lock-duration, so the engine gets a failure report (and the
+      # task is offered again) instead of the worker waiting for ever.
+      answer-timeout: PT10M
+      # Long polling of the agent's requests for the next dialog.
+      poll-wait: PT20S
+      # The agent counts as connected (health endpoint) if it asked for work within this time.
+      agent-timeout: PT60S
+
+# Worker behaviour. Tenants themselves are NOT listed here: the Fluxnova engine endpoints come from fluxnova-engine.yml, which
+# is read at start-up and WATCHED: when the endpoints in it change, the application restarts itself (the container's restart
+# policy brings it back) so that it reads them afresh. Onboarding and offboarding of tenants is done by the Fluxnova
+# container, not by isaworker. Whatever that file sets (tenants, and optionally credentials or the tuning values below)
+# replaces the values here; whatever it leaves out keeps them.
+fluxnova-workers:
+  config:
+    # The external endpoint configuration, normally a mounted volume (FLUXNOVA_WORKERS_CONFIG).
+    file: ${FLUXNOVA_WORKERS_CONFIG:/config/fluxnova-engine.yml}
+    # An edit is acted on after one to two of these intervals (a change must be seen unchanged twice, so a file that is still
+    # being saved is never acted on). Polling, because bind mounts from Windows do not deliver file-change events.
+    poll-interval: ${FLUXNOVA_WORKERS_CONFIG_POLL_INTERVAL:PT5S}
+    # true: a change of the endpoints / settings in the file ends the application with exit code 75 and Docker's restart
+    # policy (restart: unless-stopped) starts it again. false: the file is only read at start-up (use it for a run without a
+    # restart policy, e.g. on a desktop). A change that leaves the settings as they are (a comment) never restarts anything.
+    restart-on-change: ${ISAWORKER_RESTART_ON_CHANGE:true}
+  # Credentials for the engines' REST API (HTTP Basic). A tenant entry may carry its own username / password; these are
+  # used for the tenants that do not. Inject the password from the environment, never bake it into an image.
+  default-username: ${FLUXNOVA_REST_USER:}
+  default-password: ${FLUXNOVA_REST_PASSWORD:}
+  worker-id-prefix: isaworker
+  # How long a fetched task stays locked to this worker. Must be longer than the handler needs.
+  lock-duration: 30s
+  # Long polling: the engine holds the fetchAndLock request this long when there is no task, so a new task is picked up
+  # immediately without hammering the engine.
+  async-response-timeout: 20s
+  max-tasks: 10
+  # Date format of the engine's JSON. Fluxnova 3.x writes the zone offset WITH a colon (+00:00); the client library's default
+  # (yyyy-MM-dd'T'HH:mm:ss.SSSZ, +0000) cannot read it and rejects every fetched task.
+  date-format: "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+  # Back-off after a FAILED poll (engine down, wrong credentials). Successful polls are never delayed.
+  backoff-initial: 500ms
+  backoff-max: 30s
+  backoff-factor: 2.0
