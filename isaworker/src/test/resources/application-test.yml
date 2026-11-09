@@ -1,0 +1,24 @@
+# Used by every test (the surefire plugin activates the profile "test", see pom.xml).
+spring:
+  datasource:
+    # In-memory database in PostgreSQL mode instead of workerdb: tests need no server. A unique name per JVM, shared by
+    # all connections (DB_CLOSE_DELAY=-1) so that the pool and the test code see the same tables.
+    url: jdbc:h2:mem:workerdb-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+    hikari:
+      initialization-fail-timeout: 1000
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+isaworker:
+  gui:
+    # A build must never open windows on the desktop: the answers come from process variables, like in a container.
+    mode: headless
+
+fluxnova-workers:
+  config:
+    # A test must never end its own JVM. The tests of the watcher switch it on again and replace the restart with a recorder.
+    restart-on-change: false
