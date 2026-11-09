@@ -1,0 +1,102 @@
+spring:
+  application:
+    name: fluxnova-multitenant
+  task:
+    scheduling:
+      # Two scheduled tasks (tenants.yml watcher, BPMN folder watcher): separate threads, so deploying and starting
+      # processes never delays onboarding of tenants, and a slow tenant onboarding never delays the folder.
+      pool:
+        size: 2
+  lifecycle:
+    # Time Spring waits for in-flight HTTP requests before beans (and therefore tenant engines) are destroyed.
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+fluxnova:
+  bpm:
+    webapp:
+      # The site root "/" is the neutral landing page (LandingController), not a redirect into the portal.
+      index-redirect-enabled: false
+  runtime:
+    # Where tenants.yml lives inside the container. On ECS/Docker mount the config folder at /configs
+    # (a folder of the host that contains tenants.yml). Override with FLUXNOVA_CONFIG_PATH
+    # when running outside a container.
+    config-path: ${FLUXNOVA_CONFIG_PATH:/configs/tenants.yml}
+    # ISO-8601 duration. The watcher runs with a fixed delay of this length (15-30 s is the intended range).
+    poll-interval: ${FLUXNOVA_POLL_INTERVAL:PT15S}
+    # Optional override of fluxnova.cluster.admin-password from tenants.yml. On ECS inject it from
+    # AWS Secrets Manager (task definition "secrets") so the password never has to live in the YAML file.
+    admin-password: ${FLUXNOVA_CLUSTER_ADMIN_PASSWORD:}
+
+    connect-timeout: PT10S
+    lock-timeout: PT60S
+    retry-initial-delay: PT15S
+    retry-max-delay: PT10M
+
+    pool:
+      # Per tenant. Total DB connections used by this container = (number of tenants) x maximum-size.
+      # Keep that below the RDS max_connections, shared with every other container / task.
+      maximum-size: 10
+      minimum-idle: 1
+      connection-timeout: PT30S
+      idle-timeout: PT10M
+      max-lifetime: PT30M
+
+    web:
+      # Created in every tenant engine so the web portal can be used. Without a password nothing is created and
+      # the first user has to be created on /app/admin/<tenant>/setup/. On ECS inject the password from Secrets Manager.
+      # These are ALSO the platform administrator's credentials for the landing page at "/", which is the only way to
+      # sign in while no tenant exists (the tenants' own administrators live inside the tenants' databases).
+      admin-user: ${FLUXNOVA_WEB_ADMIN_USER:admin}
+      admin-password: ${FLUXNOVA_WEB_ADMIN_PASSWORD:}
+      # Only administrators (members of the fluxnova-admin group) can sign in to the portal. One sign-in then covers
+      # every tenant engine where the same administrator exists with the same password.
+      single-sign-on: ${FLUXNOVA_WEB_SINGLE_SIGN_ON:true}
+
+    # A tenant that is REMOVED from tenants.yml is offboarded: engine stopped, pool closed, database DROPPED.
+    offboarding:
+      enabled: ${FLUXNOVA_OFFBOARDING_ENABLED:true}
+      # The tenant must stay absent from a valid file this long (a mistaken save can be corrected; adding it back cancels).
+      grace-period: ${FLUXNOVA_OFFBOARDING_GRACE_PERIOD:PT30S}
+      # true: removing the last tenant (an empty tenant list) offboards it like any other.
+      # false: an empty list is refused and all engines / databases are kept (protection against emptying the file by accident).
+      allow-remove-all: ${FLUXNOVA_OFFBOARDING_ALLOW_REMOVE_ALL:true}
+      # The cluster remembers which databases this runtime manages (table fluxnova_tenant_registry in the maintenance
+      # database), so the database of a tenant removed while the container was down is still dropped. Only registered
+      # databases are ever dropped. Runtimes with DIFFERENT tenants.yml files sharing one cluster need different scopes.
+      scope: ${FLUXNOVA_OFFBOARDING_SCOPE:default}
+
+    # Deploy-and-run folder, one sub-folder per tenant. When a tenant is onboarded the folder <directory>/<tenant id> is
+    # created (the volume must be writable); a .bpmn file that lands in it is deployed to THAT tenant's engine only and a
+    # process instance is started. A .bpmn file directly in <directory> belongs to no tenant and is ignored. Files that are
+    # already in a tenant's folder when its engine starts (tenant onboarded, application restarted) are deployed but NOT
+    # started. Empty directory = feature off. In the container the folder is mounted at /config/bpmn_deployment
+    # (docker-compose.yml, FLUXNOVA_BPMN_DEPLOYMENT_DIR).
+    bpmn-deployment:
+      directory: ${FLUXNOVA_BPMN_DEPLOYMENT_DIR:}
+      # A file is used once its size and time are unchanged in two scans, so the process starts 1-2 intervals after it lands.
+      # The tenant folders are created at the next scan after the tenant is running.
+      poll-interval: ${FLUXNOVA_BPMN_DEPLOYMENT_POLL_INTERVAL:PT3S}
+      # false: files are only deployed; start the processes yourself (REST: POST .../process-definition/key/<key>/start).
+      auto-start: ${FLUXNOVA_BPMN_DEPLOYMENT_AUTO_START:true}
+
+    jobs:
+      # Per tenant job executor: 1 acquisition thread + up to max-pool-size worker threads.
+      activate: true
+      core-pool-size: 2
+      max-pool-size: 5
+      queue-size: 5
+      max-jobs-per-acquisition: 3
