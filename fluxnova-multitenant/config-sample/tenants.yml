@@ -1,0 +1,15 @@
+fluxnova:
+  cluster:
+    # The shared PostgreSQL cluster. With the local container (postgres:16.15, see docker-compose.yml) the application
+    # reaches it by the container name over the Docker network "fluxnova-net". When the application runs directly on the
+    # host instead (java -jar), use "localhost": the container publishes 127.0.0.1:5432.
+    host: "fluxnova-postgres"
+    port: 5432
+    admin-user: "postgres_admin"
+    admin-password: "secure_password"   # local container only; inject FLUXNOVA_CLUSTER_ADMIN_PASSWORD for real clusters
+    # admin-database: "postgres"   # optional: maintenance database used to run CREATE DATABASE
+  tenants:
+    - id: "tenant-a"
+      dbName: "fluxnova_tenant_a"
+    - id: "tenant-b"
+      dbName: "fluxnova_tenant_b"

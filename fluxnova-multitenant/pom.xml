@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.9</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>fluxnova-multitenant</artifactId>
+    <version>1.0.0</version>
+    <name>fluxnova-multitenant</name>
+    <description>Hosts one Fluxnova ProcessEngine per tenant, each on its own PostgreSQL database</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!--
+            Fluxnova 3.x is built on Spring Framework 7, Servlet 6.1 and Tomcat 11, and its Spring Boot starters use the
+            Spring Boot 4 modules (spring-boot-starter-webmvc, ...). It therefore needs Spring Boot 4.x: it cannot run on
+            Spring Boot 3.x (two generations of Spring Boot on one classpath define the same beans).
+            Fluxnova 2.0.x is the line for Spring Boot 3.5.
+        -->
+        <fluxnova.version>3.1.1</fluxnova.version>
+        <embedded-postgres.version>2.2.2</embedded-postgres.version>
+        <!--
+            PostgreSQL server version the integration test runs against. Keep it equal to the image of the cluster
+            container (postgres:16.15), so the tests exercise the same server the application talks to in production.
+        -->
+        <embedded-postgres-binaries.version>16.15.0</embedded-postgres-binaries.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Pins the PostgreSQL binaries that embedded-postgres starts (its default would be an older major version). -->
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>${embedded-postgres-binaries.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- Only /actuator/health is exposed; used as the ECS container / ALB health check. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Fluxnova (Camunda 7 fork) process engine, used embedded / standalone - no Spring integration needed. -->
+        <dependency>
+            <groupId>org.finos.fluxnova.bpm</groupId>
+            <artifactId>fluxnova-engine</artifactId>
+            <version>${fluxnova.version}</version>
+        </dependency>
+        <!-- Declared 'provided' by fluxnova-engine, but required at runtime for timer / batch job configuration JSON. -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+        </dependency>
+
+        <!--
+            Fluxnova web portal (Welcome, Cockpit, Tasklist, Admin) and the public REST API (/engine-rest).
+            Only the web / REST parts of the Spring Boot starters are used: the starters' own single-engine
+            auto-configuration is switched off (see FluxnovaMultiTenantApplication) because the engines are built
+            per tenant by FluxnovaEngineManager and handed to the portal through TenantProcessEngineProvider.
+        -->
+        <dependency>
+            <groupId>org.finos.fluxnova.bpm.springboot</groupId>
+            <artifactId>fluxnova-bpm-spring-boot-starter-webapp</artifactId>
+            <version>${fluxnova.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.fluxnova.bpm.springboot</groupId>
+            <artifactId>fluxnova-bpm-spring-boot-starter-rest</artifactId>
+            <version>${fluxnova.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Spring Boot 4 moved MockMvc / @AutoConfigureMockMvc into this separate web-MVC test module. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- A real PostgreSQL server started in-process for the integration test (no Docker needed). -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>${embedded-postgres.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

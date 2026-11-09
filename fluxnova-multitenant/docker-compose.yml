@@ -1,0 +1,43 @@
+name: fluxnova
+
+# The Fluxnova multi-tenant application. The PostgreSQL cluster is the separate `fluxnova-postgres` container
+# (postgres:16.15), reached by that name over the external network `fluxnova-net`. Create it once:
+#   docker network create fluxnova-net
+#   docker run -d --name fluxnova-postgres --restart unless-stopped --network fluxnova-net -p 127.0.0.1:5432:5432 \
+#     -e POSTGRES_USER=postgres_admin -e POSTGRES_PASSWORD=<same as admin-password in tenants.yml> \
+#     -v fluxnova-pgdata:/var/lib/postgresql/data postgres:16.15
+# Then, from this folder:  docker compose up -d --build
+# The cluster host / port / admin user are read from tenants.yml (fluxnova.cluster, host "fluxnova-postgres").
+# GET http://localhost:8080/api/tenants shows the cluster the application is connected to, with its server version, and
+# (bpmnDeployment) the deploy-and-run folder with what happened to the files that landed in it.
+services:
+  fluxnova-application:
+    build: .
+    image: fluxnova-application:1.0.0
+    container_name: fluxnova-application
+    restart: unless-stopped
+    ports:
+      # Only reachable from this machine. Put a TLS-terminating load balancer in front for anything else.
+      - "127.0.0.1:8080:8080"
+    environment:
+      FLUXNOVA_CONFIG_PATH: /configs/tenants.yml
+      # The folder the application watches for .bpmn files; it is the mount point of the volume below.
+      FLUXNOVA_BPMN_DEPLOYMENT_DIR: /config/bpmn_deployment
+      # Portal administrator created in every tenant engine (values come from .env, see below).
+      FLUXNOVA_WEB_ADMIN_USER: ${FLUXNOVA_WEB_ADMIN_USER:-admin}
+      FLUXNOVA_WEB_ADMIN_PASSWORD: ${FLUXNOVA_WEB_ADMIN_PASSWORD:?set FLUXNOVA_WEB_ADMIN_PASSWORD in .env}
+    volumes:
+      # The folder that holds tenants.yml, mounted read-only. The application polls it, so edits on the host are
+      # picked up without restarting the container.
+      - ${FLUXNOVA_CONFIG_DIR:-./fluxconfig}:/configs:ro
+      # The deploy-and-run folder, mounted WRITABLE: when a tenant is onboarded the application creates the sub-folder
+      # /config/bpmn_deployment/<tenant id> in it, which appears on the host at once. Drop a .bpmn file into a tenant's
+      # sub-folder: within a few seconds it is deployed to that tenant only and one instance of each process with a plain
+      # start event is started. Files already in a tenant's folder when its engine starts are deployed but not started.
+      - ${FLUXNOVA_BPMN_DIR:-./bpmn_deployment}:/config/bpmn_deployment
+    networks:
+      - fluxnova-net
+
+networks:
+  fluxnova-net:
+    external: true
