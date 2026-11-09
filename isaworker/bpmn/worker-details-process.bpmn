@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Worker details process. Deployed MANUALLY to a tenant's engine (isaworker never deploys anything):
+      .\deploy-bpmn.ps1 -File worker-details-process.bpmn -Tenant tenant-x -Start
+  or by hand:
+      curl.exe -u admin:<password> -F "deployment-name=worker-details" -F "worker-details-process.bpmn=@bpmn\worker-details-process.bpmn" ^
+        http://localhost:8080/engine-rest/engine/tenant-x/deployment/create
+
+  The steps:
+
+      Start -> enter_name (topic enter-name-topic) -> enter_address (topic enter-address-topic)
+            -> show_details (topic show-details-topic) -> End
+
+  All three service tasks are EXTERNAL tasks: the engine runs no code, it creates a task that a worker of isaworker fetches
+  over REST (fetchAndLock), executes and completes. Fluxnova 3.1.1 reads the standard BPMN 2.0 model format with the
+  Camunda-7 compatible extension attributes; camunda:type="external" / camunda:topic mark an external task.
+  camunda:historyTimeToLive is mandatory: the engine refuses a model without it.
+
+  Start one instance (tenant "tenant-x"); the dialogs then pop up on the desktop where the dialog agent runs:
+    POST http://localhost:8080/engine-rest/engine/tenant-x/process-definition/key/workerDetailsProcess/start
+-->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_WorkerDetails"
+                  targetNamespace="http://isaworker.example.com/bpmn">
+
+  <bpmn:process id="workerDetailsProcess" name="Worker details" isExecutable="true" camunda:historyTimeToLive="30">
+
+    <bpmn:startEvent id="StartEvent_Begin" name="Start">
+      <bpmn:outgoing>Flow_ToEnterName</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="enter_name" name="Enter name" camunda:type="external" camunda:topic="enter-name-topic">
+      <bpmn:incoming>Flow_ToEnterName</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEnterAddress</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="enter_address" name="Enter address" camunda:type="external" camunda:topic="enter-address-topic">
+      <bpmn:incoming>Flow_ToEnterAddress</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToShowDetails</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="show_details" name="Show details" camunda:type="external" camunda:topic="show-details-topic">
+      <bpmn:incoming>Flow_ToShowDetails</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEnd</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndEvent_Done" name="End">
+      <bpmn:incoming>Flow_ToEnd</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_ToEnterName" sourceRef="StartEvent_Begin" targetRef="enter_name"/>
+    <bpmn:sequenceFlow id="Flow_ToEnterAddress" sourceRef="enter_name" targetRef="enter_address"/>
+    <bpmn:sequenceFlow id="Flow_ToShowDetails" sourceRef="enter_address" targetRef="show_details"/>
+    <bpmn:sequenceFlow id="Flow_ToEnd" sourceRef="show_details" targetRef="EndEvent_Done"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_WorkerDetails">
+    <bpmndi:BPMNPlane id="BPMNPlane_WorkerDetails" bpmnElement="workerDetailsProcess">
+      <bpmndi:BPMNShape id="Shape_StartEvent_Begin" bpmnElement="StartEvent_Begin">
+        <dc:Bounds x="152" y="102" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="158" y="145" width="24" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_enter_name" bpmnElement="enter_name">
+        <dc:Bounds x="250" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_enter_address" bpmnElement="enter_address">
+        <dc:Bounds x="410" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_show_details" bpmnElement="show_details">
+        <dc:Bounds x="570" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndEvent_Done" bpmnElement="EndEvent_Done">
+        <dc:Bounds x="732" y="102" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="740" y="145" width="20" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToEnterName" bpmnElement="Flow_ToEnterName">
+        <di:waypoint x="188" y="120"/>
+        <di:waypoint x="250" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToEnterAddress" bpmnElement="Flow_ToEnterAddress">
+        <di:waypoint x="350" y="120"/>
+        <di:waypoint x="410" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToShowDetails" bpmnElement="Flow_ToShowDetails">
+        <di:waypoint x="510" y="120"/>
+        <di:waypoint x="570" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToEnd" bpmnElement="Flow_ToEnd">
+        <di:waypoint x="670" y="120"/>
+        <di:waypoint x="732" y="120"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

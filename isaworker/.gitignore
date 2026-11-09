@@ -1,0 +1,15 @@
+# Build output
+target/
+
+# Local settings and secrets: copy .env.example to .env and fill it in. Never commit .env.
+.env
+.tools/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+*.log

@@ -1,0 +1,22 @@
+# Which tenants the Fluxnova container (../fluxnova-multitenant) serves in this topology. Mounted at /configs/tenants.yml.
+#
+# The Fluxnova engine has its OWN PostgreSQL container, `fluxnovadb`. Every tenant gets its own process engine inside the
+# fluxnova-application container and its own database inside fluxnovadb, created automatically. That server is for
+# Fluxnova's use only: no business data is stored there. The business data (names, addresses) is in the other PostgreSQL
+# container, workerPostgresClusterDB, database workerdb, which belongs to isaworkercontainer.
+#
+# Edit this file while the container runs: a tenant that is added is onboarded within seconds, no restart. (A tenant that
+# is REMOVED is offboarded after a grace period, and its database is dropped.)
+fluxnova:
+  cluster:
+    # The Fluxnova database container, by name, on the network fluxnova-db-net.
+    host: "fluxnovadb"
+    port: 5432
+    # Must equal FLUXNOVADB_USER of the container (docker-compose.yml, default postgres_admin).
+    admin-user: "postgres_admin"
+    # Replaced by the environment variable FLUXNOVA_CLUSTER_ADMIN_PASSWORD (set from FLUXNOVADB_PASSWORD in docker-compose.yml).
+    admin-password: "overridden-by-FLUXNOVA_CLUSTER_ADMIN_PASSWORD"
+    # Fluxnova's own bookkeeping (which databases it manages) lives in the database fluxnovadb of that server.
+    admin-database: "fluxnovadb"
+  tenants:
+   

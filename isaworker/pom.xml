@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <!-- Spring Boot 3.x on purpose: the external task client is a plain HTTP client library and does not depend on
+             the Spring generation of the Fluxnova server it talks to (the server in ../fluxnova-multitenant runs on Boot 4). -->
+        <version>3.5.16</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>isaworker</artifactId>
+    <version>1.0.0</version>
+    <name>isaworker</name>
+    <description>Multi-tenant Fluxnova external task workers (return-name, return-address)</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!-- Keep equal to the version of the Fluxnova server the workers talk to. -->
+        <fluxnova.version>3.1.1</fluxnova.version>
+    </properties>
+
+    <dependencies>
+        <!-- Not needed to poll, but it keeps the JVM alive in idle mode (no tenant configured) and serves /actuator/health
+             for the container health check. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Fluxnova (Camunda 7 fork) external task client: long-polls fetchAndLock on the engine's REST API. -->
+        <dependency>
+            <groupId>org.finos.fluxnova.bpm</groupId>
+            <artifactId>fluxnova-external-task-client</artifactId>
+            <version>${fluxnova.version}</version>
+        </dependency>
+        <!-- The client declares the JAXB runtime as 'provided'; it is needed at run time. -->
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- workerdb: the WorkerDetail entity (name / address per process instance) lives in PostgreSQL. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!-- Generates the metadata that lets IDEs complete and validate fluxnova-workers.* in the YAML files. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The tests run on an in-memory database in PostgreSQL mode; the real PostgreSQL is covered by the Docker test. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- application-test.yml: H2 instead of workerdb, headless dialogs, no desktop pop-ups during the build. -->
+                        <spring.profiles.active>test</spring.profiles.active>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

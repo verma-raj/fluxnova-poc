@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Demo process for the isaworker external task workers:
+
+      Start  ->  Return Name (topic return-name)  ->  Return Address (topic return-address)  ->  End
+
+  Both service tasks are EXTERNAL tasks: the engine does not run any code itself, it creates a task that a worker fetches
+  over REST (fetchAndLock), executes and completes. The Fluxnova engine (3.1.1) reads the standard BPMN 2.0 model format and
+  its Camunda-7 compatible extension attributes; "camunda:type" / "camunda:topic" are the attributes that mark an external
+  task. historyTimeToLive is mandatory: the engine refuses a model without it.
+
+  Deploy: copy this file into the sub-folder of the tenant that is to run it, in the Fluxnova deployment folder
+  (C:\Users\rajivnayan.verma\bpmn_deployment\<tenant id>, mounted at /config/bpmn_deployment). It is deployed to that
+  tenant only and one instance is started automatically.
+-->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_IsaDemo"
+                  targetNamespace="http://isaworker.example.com/bpmn">
+
+  <bpmn:process id="isaDemoProcess" name="Customer name and address" isExecutable="true" camunda:historyTimeToLive="30">
+
+    <bpmn:startEvent id="StartEvent_Begin" name="Start">
+      <bpmn:outgoing>Flow_ToName</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_ReturnName" name="Return Name" camunda:type="external" camunda:topic="return-name">
+      <bpmn:incoming>Flow_ToName</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToAddress</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_ReturnAddress" name="Return Address" camunda:type="external" camunda:topic="return-address">
+      <bpmn:incoming>Flow_ToAddress</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEnd</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndEvent_Done" name="End">
+      <bpmn:incoming>Flow_ToEnd</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_ToName" sourceRef="StartEvent_Begin" targetRef="Task_ReturnName"/>
+    <bpmn:sequenceFlow id="Flow_ToAddress" sourceRef="Task_ReturnName" targetRef="Task_ReturnAddress"/>
+    <bpmn:sequenceFlow id="Flow_ToEnd" sourceRef="Task_ReturnAddress" targetRef="EndEvent_Done"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_IsaDemo">
+    <bpmndi:BPMNPlane id="BPMNPlane_IsaDemo" bpmnElement="isaDemoProcess">
+      <bpmndi:BPMNShape id="Shape_StartEvent_Begin" bpmnElement="StartEvent_Begin">
+        <dc:Bounds x="152" y="102" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="158" y="145" width="24" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReturnName" bpmnElement="Task_ReturnName">
+        <dc:Bounds x="250" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReturnAddress" bpmnElement="Task_ReturnAddress">
+        <dc:Bounds x="410" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndEvent_Done" bpmnElement="EndEvent_Done">
+        <dc:Bounds x="572" y="102" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="580" y="145" width="20" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToName" bpmnElement="Flow_ToName">
+        <di:waypoint x="188" y="120"/>
+        <di:waypoint x="250" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToAddress" bpmnElement="Flow_ToAddress">
+        <di:waypoint x="350" y="120"/>
+        <di:waypoint x="410" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ToEnd" bpmnElement="Flow_ToEnd">
+        <di:waypoint x="510" y="120"/>
+        <di:waypoint x="572" y="120"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,26 @@
+# TEMPLATE of the external tenant configuration.
+#
+# The tenant's team copies this file to the host folder that is mounted into the container at /config
+# (here: C:\Users\rajivnayan.verma\tenant-endpoint\fluxnova-engine.yml) and fills it out. The worker reads the file when the
+# container starts and opens one worker per entry. The file is WATCHED: when the endpoints in it change, the container
+# restarts itself within 5-10 seconds (no `docker restart` by hand) and reads the file afresh. A comment or a change of
+# layout restarts nothing. isaworker does not onboard or offboard tenants: tenants are created and removed in the Fluxnova
+# container (its tenants.yml); an entry here only says which engine endpoint to serve. A file with a mistake is ignored (the
+# workers run on; see `docker logs isaworkercontainer`).
+#
+# Without this file, with an empty file, or with `tenants: []` the worker runs idle:
+#   "No active Fluxnova engine configured. Application is running in idle mode."
+fluxnova-workers:
+  tenants:
+    # One entry per tenant whose engine this worker serves. To serve another tenant, APPEND another entry.
+    #- id: "tenant-a"
+      # The REST endpoint of THIS tenant's own engine: http://<fluxnova container>:8080/engine-rest/engine/<tenant id>
+      # From another container on the same Docker network use the Fluxnova container's name as the host name.
+    #  baseUrl: "http://fluxnova-container:8080/engine-rest/engine/tenant-a"
+
+    # Optional per tenant: credentials of a user of THAT tenant's engine (HTTP Basic). If omitted, the container's
+    # FLUXNOVA_REST_USER / FLUXNOVA_REST_PASSWORD are used. Prefer the environment variables for the password.
+    # - id: "tenant-b"
+    #   baseUrl: "http://fluxnova-container:8080/engine-rest/engine/tenant-b"
+    #   username: "worker"
+    #   password: "${TENANT_B_WORKER_PASSWORD}"

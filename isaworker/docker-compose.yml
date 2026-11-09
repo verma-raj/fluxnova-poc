@@ -1,0 +1,149 @@
+name: isaworker
+
+# Four containers, two database servers that never meet, one REST link between the applications:
+#
+#   fluxnova-application ──► fluxnovadb                  Fluxnova's own PostgreSQL server (postgres:16.15). Every tenant
+#   (the Fluxnova engine,      network fluxnova-db-net   engine runs inside fluxnova-application; its database
+#    ../fluxnova-multitenant)                            flux_<tenant>_db is created inside fluxnovadb. For Fluxnova's
+#                                                        use only: NO business data is stored there.
+#
+#   isaworkercontainer ──► workerPostgresClusterDB       The PostgreSQL server of the workers; database `workerdb` holds
+#   (the workers)             network worker-db-net      the BUSINESS data (table worker_detail).
+#
+#   isaworkercontainer ──► fluxnova-application          REST: fetchAndLock / complete / failure (network api-net)
+#
+# The networks are what keeps it that way: fluxnova-application cannot reach workerPostgresClusterDB, and isaworkercontainer
+# cannot reach fluxnovadb.
+#
+# The dialogs ("Please enter your name:") do NOT open inside isaworkercontainer, a container has no screen. The container
+# queues them and the dialog agent, started on the Windows desktop with run-dialog-agent.ps1, shows them on YOUR desktop.
+#
+# BPMN models are NOT deployed by anything in here: deploy them yourself with deploy-bpmn.ps1 (models live in bpmn\).
+#
+# Start everything:  docker compose up -d --build          Then on the desktop:  .\run-dialog-agent.ps1
+services:
+
+  # --- Fluxnova's database server ------------------------------------------------------------------------------------
+  fluxnovadb:
+    image: postgres:16.15
+    container_name: fluxnovadb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${FLUXNOVADB_USER:-postgres_admin}
+      POSTGRES_PASSWORD: ${FLUXNOVADB_PASSWORD:?set FLUXNOVADB_PASSWORD in .env}
+      POSTGRES_DB: fluxnovadb
+    ports:
+      # Only reachable from this machine (5432 is taken by workerPostgresClusterDB).
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - fluxnova_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d fluxnovadb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - fluxnova-db-net
+
+  # --- The Fluxnova engine -------------------------------------------------------------------------------------------
+  fluxnova-application:
+    build:
+      context: ../fluxnova-multitenant
+    image: fluxnova-application:1.0.0
+    container_name: fluxnova-application
+    restart: unless-stopped
+    depends_on:
+      fluxnovadb:
+        condition: service_healthy
+    ports:
+      # The engine's REST API and web portal, from this machine only.
+      - "127.0.0.1:8080:8080"
+    environment:
+      FLUXNOVA_CONFIG_PATH: /configs/tenants.yml
+      # The administrator of every tenant engine; isaworker uses the same credentials for the REST API.
+      FLUXNOVA_WEB_ADMIN_USER: ${FLUXNOVA_REST_USER:-admin}
+      FLUXNOVA_WEB_ADMIN_PASSWORD: ${FLUXNOVA_REST_PASSWORD:?set FLUXNOVA_REST_PASSWORD in .env}
+      # Fluxnova creates one database per tenant in fluxnovadb, as that server's superuser.
+      FLUXNOVA_CLUSTER_ADMIN_PASSWORD: ${FLUXNOVADB_PASSWORD}
+      # The deploy-and-run folder, watched by this container (the mount point of the volume below). Every tenant has its own
+      # sub-folder in it, created when the tenant is onboarded. A .bpmn file that lands in a tenant's sub-folder is deployed
+      # to THAT tenant only and one instance of its process is started; files that are already there when the tenant's
+      # engine starts are deployed but not started. deploy-bpmn.ps1 remains available to deploy a model by hand.
+      FLUXNOVA_BPMN_DEPLOYMENT_DIR: /config/bpmn_deployment
+    volumes:
+      # tenants.yml: which tenants exist. Edit it and the engine onboards the change within seconds, no restart.
+      - ${FLUXNOVA_TENANTS_DIR:-./topology/fluxnova-config}:/configs:ro
+      # The deploy-and-run folder of the host (FLUXNOVA_BPMN_DIR in .env), WRITABLE: fluxnova-application creates the
+      # sub-folder /config/bpmn_deployment/<tenant id> in it when a tenant is onboarded, and it appears on the host at once.
+      # Drop a .bpmn file into a tenant's sub-folder: within a few seconds it is deployed to that tenant and started.
+      - ${FLUXNOVA_BPMN_DIR:-./bpmn_deployment}:/config/bpmn_deployment
+    networks:
+      - fluxnova-db-net
+      - api-net
+
+  # --- The business database server ----------------------------------------------------------------------------------
+  workerPostgresClusterDB:
+    image: postgres:16.15
+    container_name: workerPostgresClusterDB
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${WORKERDB_USER:-postgres_admin}
+      POSTGRES_PASSWORD: ${WORKERDB_PASSWORD:?set WORKERDB_PASSWORD in .env}
+      POSTGRES_DB: workerdb
+    ports:
+      # Only reachable from this machine, for looking at the business data with psql / DBeaver.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - worker_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d workerdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - worker-db-net
+
+  # --- The workers ---------------------------------------------------------------------------------------------------
+  isaworkercontainer:
+    build: .
+    image: isaworker
+    container_name: isaworkercontainer
+    restart: unless-stopped
+    depends_on:
+      workerPostgresClusterDB:
+        condition: service_healthy
+      fluxnova-application:
+        condition: service_healthy
+    # Stopping a worker waits for the poll in flight (up to the 20 s long-polling time); give it room to finish cleanly.
+    stop_grace_period: 30s
+    ports:
+      # Health page and the dialog API the desktop agent talks to, from this machine only.
+      - "127.0.0.1:8181:8080"
+    environment:
+      FLUXNOVA_WORKERS_CONFIG: /config/fluxnova-engine.yml
+      FLUXNOVA_REST_USER: ${FLUXNOVA_REST_USER:-admin}
+      FLUXNOVA_REST_PASSWORD: ${FLUXNOVA_REST_PASSWORD:-}
+      WORKERDB_URL: jdbc:postgresql://workerPostgresClusterDB:5432/workerdb
+      WORKERDB_USER: ${WORKERDB_USER:-postgres_admin}
+      WORKERDB_PASSWORD: ${WORKERDB_PASSWORD}
+      # The dialogs open on the desktop of this machine, shown by the dialog agent (run-dialog-agent.ps1).
+      ISAWORKER_GUI_MODE: remote
+      ISAWORKER_DIALOG_TOKEN: ${ISAWORKER_DIALOG_TOKEN:?set ISAWORKER_DIALOG_TOKEN in .env}
+    volumes:
+      # The folder that holds fluxnova-engine.yml (the Fluxnova engine endpoints), read-only, at /config.
+      # The file is WATCHED: when the endpoints in it change, the application ends itself and Docker's restart policy (restart:
+      # unless-stopped, below) starts this container again, which reads the file afresh. No restart by hand.
+      # Tenant onboarding and offboarding is done by fluxnova-application, not here.
+      - ${FLUXNOVA_ENGINE_CONFIG_DIR:-./tenant-endpoint}:/config:ro
+    networks:
+      - api-net
+      - worker-db-net
+
+volumes:
+  fluxnova_pgdata:
+  worker_pgdata:
+
+networks:
+  fluxnova-db-net:
+  worker-db-net:
+  api-net:

@@ -1,0 +1,9 @@
+target
+.idea
+.vscode
+.env
+.env.example
+config-sample
+bpmn
+docker-compose.yml
+README.md
